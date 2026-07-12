@@ -1,17 +1,60 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
-from models import db
+from models import User, db
+from werkzeug.security import generate_password_hash
+import os
+from dotenv import load_dotenv
+
+# Load variables from the .env file
+load_dotenv()
 
 app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 CORS(app)
 db.init_app(app)
 
 @app.route('/api/auth/register', methods=['POST'])
 def register():
-    data = request.get_json()
-    #TODO: Add the user to DB if everything is correct
-    return jsonify({
+    data = request.get_json() or {}
+    name = data.get('name')
+    email = data.get('email')
+    password = data.get('password')
+    role = data.get('role')
+
+    if not all([name, email, password, role]):
+        return jsonify({
+            "error": "Missing fields", 
+            "message": "Name, email, password, and role are completely required."
+        }), 400
+    
+    valid_roles = ['Fleet Manager', 'Dispatcher', 'Safety Officer', 'Financial Analyst']
+    if role not in valid_roles:
+        return jsonify({
+            "error": "Invalid role", 
+            "message": f"Role must be one of: {', '.join(valid_roles)}"
+        }), 400
+    
+    existing_user = User.query.filter_by(email=email).first()
+    if existing_user:
+        return jsonify({
+            "error": "Duplicate Entry",
+            "message": "Email is already registered."
+        }), 400
+    
+    try:
+        hashed_password = generate_password_hash(password)
+        new_user = User(
+            name=name,
+            email=email,
+            password_hash=hashed_password,
+            role=role
+        )
+        db.session.add(new_user)
+        db.session.commit()
+
+        return jsonify({
             "message": "User created successfully",
             "user": {
                 "name": new_user.name,
@@ -19,6 +62,13 @@ def register():
                 "role": new_user.role
             }
         }), 201
+    
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            "error": "Database Error",
+            "message": "An unexpected error occurred while writing to the registry."
+        }), 500
 
 @app.route("/api/auth/login", methods=['POST'])
 def login():
