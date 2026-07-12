@@ -7,6 +7,19 @@ app = Flask(__name__)
 CORS(app)
 db.init_app(app)
 
+@app.route('/api/auth/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    #TODO: Add the user to DB if everything is correct
+    return jsonify({
+            "message": "User created successfully",
+            "user": {
+                "name": new_user.name,
+                "email": new_user.email,
+                "role": new_user.role
+            }
+        }), 201
+
 @app.route("/api/auth/login", methods=['POST'])
 def login():
     data = request.get_json()

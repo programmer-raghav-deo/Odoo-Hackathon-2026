@@ -6,6 +6,32 @@ This file contains the strict REST API data contracts between the Flask backend 
 
 ## 🔐 1. Authentication & RBAC
 
+### Register New User
+* URL: /api/auth/register
+* Method: POST
+* Request Body:
+  {
+    "name": "Raven K.",
+    "email": "raven.k@transitops.in",
+    "password": "securepassword123",
+    "role": "Dispatcher"
+  }
+*(Note: role must match exactly: 'Fleet Manager', 'Dispatcher', 'Safety Officer', or 'Financial Analyst')*
+* Success Response (201 Created):
+  {
+    "message": "User created successfully",
+    "user": {
+      "name": "Raven K.",
+      "email": "raven.k@transitops.in",
+      "role": "Dispatcher"
+    }
+  }
+* Error Response (400 Bad Request):
+  {
+    "error": "Duplicate Entry",
+    "message": "Email is already registered."
+  }
+
 ### Log In User
 * URL: /api/auth/login
 * Method: POST
