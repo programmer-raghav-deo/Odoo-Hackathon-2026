@@ -1,9 +1,11 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from datetime import datetime
+from models import db
 
 app = Flask(__name__)
 CORS(app)
+db.init_app(app)
 
 @app.route("/api/auth/login", methods=['POST'])
 def login():
