@@ -1,5 +1,16 @@
 const BASE_URL = 'http://localhost:5000/api';
 
+// 🛠️ THE FIX: Added the missing handleResponse function to parse backend errors properly
+const handleResponse = async (response) => {
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    // This grabs the exact error message from Flask (like "Invalid credentials") and throws it to Login.jsx
+    const errorMessage = data.error || data.message || `HTTP error! status: ${response.status}`;
+    throw new Error(errorMessage);
+  }
+  return data;
+};
+
 /**
  * Enhanced fetch wrapper that enforces session state tracking across ports
  */
@@ -8,12 +19,10 @@ async function customFetch(url, options = {}) {
   options.credentials = 'include'; 
   
   const response = await fetch(url, options);
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
-  }
-  return response.json();
+  // Using the new handler here in case you use customFetch in the future
+  return handleResponse(response);
 }
+
 export const api = {
   // 🔐 1. AUTHENTICATION ENDPOINTS
   auth: {
