@@ -197,63 +197,87 @@ This file contains the strict REST API data contracts between the Flask backend 
   }
 
 ### Update Driver Status
-* URL: /api/drivers/<int:id>/status
+* URL: /api/drivers/<driver_id>/status
 * Method: PUT
 * Request Body:
   {
     "status": "Suspended"
   }
+* Success Response (200 OK):
+  {
+    "message": "Driver status updated successfully to Suspended"
+  }
+* Error Response (400 Bad Request):
+  {
+    "message": "Invalid status. Must be one of ['Available', 'On Trip', 'Off Duty', 'Suspended']"
+  }
 
 ### Fetch Drivers for Dispatch Selection Dropdown
 * URL: /api/drivers/dispatch-pool
 * Method: GET
-* Success Response (200 OK): Excludes drivers with expired licenses or Suspended status.
+* Success Response (200 OK): Filters out 'Suspended', 'Off Duty', 'On Trip', and expired licenses automatically.
+  [
+    {
+      "id": 1,
+      "name": "Alex",
+      "license_number": "DL-98765432",
+      "license_category": "Heavy Commercial",
+      "license_expiry_date": "2028-11-15",
+      "contact_number": "+1234567890",
+      "safety_score": 95,
+      "status": "Available"
+    }
+  ]
 
 ---
 
-## 🗺️ 5. Trip Dispatcher
-
-### Fetch All Trips
-* URL: /api/trips
-* Method: GET
+## 🗺️ 5. Trip Management
 
 ### Create Draft Trip
 * URL: /api/trips/draft
 * Method: POST
 * Request Body:
   {
-    "source": "Gandhinagar Depot",
-    "destination": "Ahmedabad Hub",
     "vehicle_id": 1,
     "driver_id": 3,
-    "cargo_weight_kg": 700,
-    "planned_distance_km": 38
+    "source": "Warehouse A",
+    "destination": "Hub B",
+    "planned_distance_km": 120,
+    "cargo_weight_kg": 450
+  }
+* Success Response (201 Created):
+  {
+    "message": "Draft trip created successfully",
+    "trip_id": 101,
+    "trip_code": "TR-B2C3D4"
   }
 
 ### Dispatch Trip
-* URL: /api/trips/<int:id>/dispatch
+* URL: /api/trips/<trip_id>/dispatch
 * Method: POST
-* Success Response (200 OK): Transitions trip to Dispatched, changes vehicle/driver to On Trip.
-* Error Response (400 Bad Request):
+* Success Response (200 OK):
   {
-    "error": "Dispatch Blocked",
-    "message": "Vehicle Capacity: 500 kg. Cargo Weight: 700 kg. Capacity exceeded by 200 kg -> dispatch blocked."
+    "message": "Trip successfully dispatched!",
+    "status": "Dispatched"
   }
 
 ### Complete Trip
-* URL: /api/trips/<int:id>/complete
+* URL: /api/trips/<trip_id>/complete
 * Method: POST
-* Request Body:
+* Success Response (200 OK):
   {
-    "final_odometer": 74500,
-    "fuel_consumed_liters": 42
+    "message": "Trip completed, metrics updated"
   }
 
-### Cancel Dispatched Trip
-* URL: /api/trips/<int:id>/cancel
+### Cancel Trip
+* URL: /api/trips/<trip_id>/cancel
 * Method: POST
-* Success Response (200 OK): Reverts vehicle and driver statuses back to Available.
+* Success Response (200 OK):
+  {
+    "message": "Trip cancelled, assets set to Available"
+  }
 
+  
 ---
 
 ## 🔧 6. Maintenance Logs

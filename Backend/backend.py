@@ -1,10 +1,11 @@
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
-from datetime import datetime
+from datetime import datetime, date
 from models import User, db, Vehicle, Trip, Driver
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 from dotenv import load_dotenv
+import uuid
 
 # Load variables from the .env file
 load_dotenv()
@@ -281,41 +282,313 @@ def get_vehicle_dispatch_pool():
 
 @app.route('/api/drivers', methods=['GET', 'POST'])
 def handle_drivers():
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+
+    # --- POST LOGIC: Register New Driver ---
     if request.method == 'POST':
-        #TODO: Insert new driver in DB
-        return jsonify({"message": "Driver registered successfully"}), 201
-    #TODO: If GET requst return all drivers list
-    return jsonify([
-        {"id": 1, "name": "John", "license_number": "DL-44120", "status": "Available", "safety_score": 81}
-    ]), 200
+        try:
+            data = request.get_json() or {}
+            
+            name = data.get('name')
+            license_number = data.get('license_number')
+            license_category = data.get('license_category')
+            license_expiry_str = data.get('license_expiry_date') # Keep standard JSON key name
+            contact_number = data.get('contact_number')
+            safety_score = data.get('safety_score', 100)
+
+            if not name or not license_number or not license_category or not license_expiry_str:
+                return jsonify({"message": "Missing required fields"}), 400
+
+            try:
+                license_expiry_date = datetime.strptime(license_expiry_str, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({"message": "Invalid date format. Use YYYY-MM-DD"}), 400
+
+            new_driver = Driver(
+                name=name,
+                license_number=license_number,
+                license_category=license_category,
+                license_expiry=license_expiry_date,  # Fixed to match schema column
+                contact_number=contact_number,
+                safety_score=int(safety_score),
+                status='Available'
+            )
+
+            db.session.add(new_driver)
+            db.session.commit()
+
+            return jsonify({"message": "Driver registered successfully"}), 201
+
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"message": "Error registering driver", "error": str(e)}), 500
+
+    # --- GET LOGIC: Fetch Drivers List ---
+    try:
+        status_filter = request.args.get('status')
+        
+        query = Driver.query
+        if status_filter:
+            query = query.filter_by(status=status_filter)
+            
+        drivers = query.all()
+        
+        drivers_list = []
+        for d in drivers:
+            drivers_list.append({
+                "id": d.id,
+                "name": d.name,
+                "license_number": d.license_number,
+                "license_category": d.license_category,
+                "license_expiry_date": d.license_expiry.strftime('%Y-%m-%d') if d.license_expiry else None, # Fixed to d.license_expiry
+                "contact_number": d.contact_number,
+                "safety_score": d.safety_score,
+                "status": d.status
+            })
+
+        return jsonify(drivers_list), 200
+
+    except Exception as e:
+        return jsonify({"message": "Error fetching drivers", "error": str(e)}), 500
 
 @app.route('/api/drivers/<int:driver_id>/status', methods=['PUT'])
 def update_driver_status(driver_id):
-    data = request.get_json()
-    return jsonify({"message": f"Driver {driver_id} status updated to {data.get('status')}"}), 200
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+
+    try:
+        data = request.get_json() or {}
+        new_status = data.get('status')
+
+        # 1. Validate that a status was provided
+        if not new_status:
+            return jsonify({"message": "Missing status field"}), 400
+
+        # 2. Enforce the exact enum statuses from the problem statement
+        valid_statuses = ['Available', 'On Trip', 'Off Duty', 'Suspended']
+        if new_status not in valid_statuses:
+            return jsonify({"message": f"Invalid status. Must be one of {valid_statuses}"}), 400
+
+        # 3. Find the driver in the DB
+        driver = Driver.query.get(driver_id)
+        if not driver:
+            return jsonify({"message": f"Driver with ID {driver_id} not found."}), 404
+
+        # 4. Update and commit to MariaDB
+        driver.status = new_status
+        db.session.commit()
+
+        return jsonify({
+            "message": f"Driver status updated successfully to {new_status}"
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error updating driver status", "error": str(e)}), 500
 
 @app.route('/api/drivers/dispatch-pool', methods=['GET'])
 def get_driver_dispatch_pool():
-    return jsonify([{"id": 3, "name": "Driver Bob"}]), 200
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+
+    try:
+        # 1. Fetch only drivers whose status is strictly 'Available'
+        available_drivers = Driver.query.filter_by(status='Available').all()
+        
+        current_date = date.today()
+        pool_list = []
+        
+        # 2. Filter out drivers with expired licenses
+        for d in available_drivers:
+            if d.license_expiry and d.license_expiry >= current_date:
+                pool_list.append({
+                    "id": d.id,
+                    "name": d.name,
+                    "license_number": d.license_number,
+                    "license_category": d.license_category,
+                    "license_expiry_date": d.license_expiry.strftime('%Y-%m-%d'),
+                    "contact_number": d.contact_number,
+                    "safety_score": d.safety_score,
+                    "status": d.status
+                })
+
+        return jsonify(pool_list), 200
+
+    except Exception as e:
+        return jsonify({"message": "Error fetching driver dispatch pool", "error": str(e)}), 500
 
 
 
 @app.route('/api/trips/draft', methods=['POST'])
 def create_draft_trip():
-    return jsonify({"message": "Draft trip created successfully", "trip_id": 101}), 201
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+    
+    try:
+        data = request.get_json() or {}
+        vehicle_id = data.get('vehicle_id')
+        driver_id = data.get('driver_id')
+        source = data.get('source')              # Fixed: split route mapping
+        destination = data.get('destination')    # Fixed: split route mapping
+        planned_distance = data.get('planned_distance_km')
+        cargo_weight = data.get('cargo_weight_kg')
+
+        if not vehicle_id or not driver_id or not source or not destination or planned_distance is None or cargo_weight is None:
+            return jsonify({"message": "Missing required fields"}), 400
+
+        # Validate that vehicle and driver exist
+        vehicle = Vehicle.query.get(vehicle_id)
+        driver = Driver.query.get(driver_id)
+        if not vehicle or not driver:
+            return jsonify({"message": "Invalid Vehicle or Driver ID"}), 404
+
+        # Enforce Capacity Guardrail
+        if int(cargo_weight) > vehicle.max_load_capacity_kg:
+            return jsonify({
+                "error": "Capacity Exceeded",
+                "message": f"Cargo weight ({cargo_weight} kg) exceeds vehicle max capacity ({vehicle.max_load_capacity_kg} kg)."
+            }), 400
+
+        trip_code = f"TR-{uuid.uuid4().hex[:6].upper()}"
+
+        new_trip = Trip(
+            trip_code=trip_code,
+            vehicle_id=vehicle_id,
+            driver_id=driver_id,
+            source=source,                # Maps directly to DB schema
+            destination=destination,      # Maps directly to DB schema
+            planned_distance_km=int(planned_distance),
+            cargo_weight_kg=int(cargo_weight),
+            status='Draft'
+        )
+
+        db.session.add(new_trip)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Draft trip created successfully", 
+            "trip_id": new_trip.id,
+            "trip_code": trip_code
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error creating draft trip", "error": str(e)}), 500
 
 @app.route('/api/trips/<int:trip_id>/dispatch', methods=['POST'])
 def dispatch_trip(trip_id):
-    # TODO: Implement strict checks (Cargo Weight <= Max Capacity)
-    return jsonify({"message": "Trip successfully dispatched!", "status": "Dispatched"}), 200
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+
+    try:
+        trip = Trip.query.get(trip_id)
+        if not trip:
+            return jsonify({"message": "Trip not found"}), 404
+
+        if trip.status != 'Draft':
+            return jsonify({"message": "Only Draft trips can be dispatched"}), 400
+
+        vehicle = Vehicle.query.get(trip.vehicle_id)
+        driver = Driver.query.get(trip.driver_id)
+
+        if not vehicle or not driver:
+            return jsonify({"message": "Assigned vehicle or driver no longer exists"}), 404
+
+        # 1. Strict Business Check: Cargo Weight <= Max Capacity
+        if trip.cargo_weight_kg > vehicle.max_load_capacity_kg:
+            return jsonify({
+                "error": "Capacity Exceeded",
+                "message": f"Cargo weight ({trip.cargo_weight_kg} kg) exceeds vehicle max capacity ({vehicle.max_load_capacity_kg} kg)."
+            }), 400
+
+        # 2. Enforce Asset Availability Guardrails
+        if vehicle.status != 'Available':
+            return jsonify({"message": f"Vehicle {vehicle.name} is currently {vehicle.status} and cannot be dispatched."}), 400
+        
+        if driver.status != 'Available':
+            return jsonify({"message": f"Driver {driver.name} is currently {driver.status} and cannot be dispatched."}), 400
+
+        # 3. Enforce License Expiry Guardrail (using correct license_expiry column)
+        if driver.license_expiry and driver.license_expiry < date.today():
+            return jsonify({"message": f"Cannot dispatch. Driver {driver.name}'s license has expired."}), 400
+
+        # Commit State Transitions
+        trip.status = 'Dispatched'
+        vehicle.status = 'On Trip'
+        driver.status = 'On Trip'
+        
+        db.session.commit()
+        return jsonify({"message": "Trip successfully dispatched!", "status": "Dispatched"}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error dispatching trip", "error": str(e)}), 500
 
 @app.route('/api/trips/<int:trip_id>/complete', methods=['POST'])
 def complete_trip(trip_id):
-    return jsonify({"message": "Trip completed, metrics updated"}), 200
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+
+    try:
+        trip = Trip.query.get(trip_id)
+        if not trip:
+            return jsonify({"message": "Trip not found"}), 404
+
+        if trip.status != 'Dispatched':
+            return jsonify({"message": "Only active/dispatched trips can be completed"}), 400
+
+        vehicle = Vehicle.query.get(trip.vehicle_id)
+        driver = Driver.query.get(trip.driver_id)
+
+        trip.status = 'Completed'
+        
+        # Release assets and add mileage to the vehicle's odometer
+        if vehicle:
+            vehicle.odometer += trip.planned_distance_km
+            vehicle.status = 'Available'
+            
+        if driver:
+            driver.status = 'Available'
+
+        db.session.commit()
+        return jsonify({"message": "Trip completed, metrics updated"}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error completing trip", "error": str(e)}), 500
 
 @app.route('/api/trips/<int:trip_id>/cancel', methods=['POST'])
 def cancel_trip(trip_id):
-    return jsonify({"message": "Trip cancelled, assets set to Available"}), 200
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+
+    try:
+        trip = Trip.query.get(trip_id)
+        if not trip:
+            return jsonify({"message": "Trip not found"}), 404
+
+        if trip.status not in ['Draft', 'Dispatched']:
+            return jsonify({"message": "Cannot cancel a trip that is already completed or cancelled"}), 400
+
+        vehicle = Vehicle.query.get(trip.vehicle_id)
+        driver = Driver.query.get(trip.driver_id)
+
+        # Re-pool active assets if the trip was already dispatched
+        if trip.status == 'Dispatched':
+            if vehicle:
+                vehicle.status = 'Available'
+            if driver:
+                driver.status = 'Available'
+
+        trip.status = 'Cancelled'
+        db.session.commit()
+        
+        return jsonify({"message": "Trip cancelled, assets set to Available"}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error cancelling trip", "error": str(e)}), 500
 
 
 
