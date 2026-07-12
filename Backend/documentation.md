@@ -133,7 +133,12 @@ This file contains the strict REST API data contracts between the Flask backend 
     "model": "VAN-05",
     "type": "Van",
     "max_capacity_kg": 500,
+    "odometer": 0,
     "acquisition_cost": 620000.00
+  }
+* Success Response (201 Created):
+  {
+    "message": "Vehicle registered successfully"
   }
 * Error Response (400 Bad Request):
   {

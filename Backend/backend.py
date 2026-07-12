@@ -180,15 +180,80 @@ def get_recent_trips():
 
 @app.route('/api/vehicles', methods=['GET', 'POST'])
 def handle_vehicles():
-    if request.method == 'POST':
-        data = request.get_json()
-        # TODO: Insert new vehicle into DB
-        return jsonify({"message": "Vehicle registered successfully"}), 201
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
     
-    # GET logic
-    return jsonify([
-        {"id": 1, "reg_number": "GJ01AB4521", "model": "VAN-05", "type": "Van", "status": "Available"}
-    ]), 200
+    if request.method == 'POST':
+        try:
+            data = request.get_json()
+
+            reg_number = data.get('reg_number')
+            model = data.get('model')
+            vehicle_type = data.get('type')
+            max_capacity = data.get('max_capacity_kg')
+            odometer = data.get('odometer', 0)
+            acq_cost = data.get('acquisition_cost', 0.0)
+
+            if not reg_number or not model or not vehicle_type or max_capacity is None:
+                return jsonify({"message": "Missing required fields"}), 400
+            
+            # Mandatory Business Rule: Unique Registration Number
+            existing_vehicle = Vehicle.query.filter_by(registration_number=reg_number).first()
+            if existing_vehicle:
+                return jsonify({
+                    "error": "Duplicate Entry",
+                    "message": "Vehicle registration number must be unique."
+                }), 400
+            
+            new_vehicle = Vehicle(
+                registration_number=reg_number,
+                name=model,  # Maps 'model' from JSON to schema column
+                type=vehicle_type,
+                max_load_capacity_kg=int(max_capacity),  # Maps JSON to schema column
+                odometer=int(odometer),
+                acquisition_cost=float(acq_cost),
+                status='Available'
+            )
+
+            db.session.add(new_vehicle)
+            db.session.commit()
+
+            return jsonify({"message": "Vehicle registered successfully"}), 201
+        
+        except Exception as e:
+            db.session.rollback()
+            return jsonify({"message": "Error registering vehicle", "error": str(e)}), 500
+        
+    # --- GET LOGIC: Fetch Vehicles List ---
+    try:
+        # Read optional query filters (?type=Van&status=Available)
+        type_filter = request.args.get('type')
+        status_filter = request.args.get('status')
+
+        query = Vehicle.query
+        if type_filter:
+            query = query.filter_by(type=type_filter)
+        if status_filter:
+            query = query.filter_by(status=status_filter)
+        
+        vehicles = query.all()
+
+        vehicles_list = []
+        for v in vehicles:
+            vehicles_list.append({
+                "id": v.id,
+                "reg_number": v.registration_number,
+                "model": v.name,
+                "type": v.type,
+                "max_capacity_kg": v.max_load_capacity_kg,
+                "odometer": v.odometer,
+                "acquisition_cost": float(v.acquisition_cost) if v.acquisition_cost else 0.0,
+                "status": v.status
+            })
+        return jsonify(vehicles_list), 200
+    
+    except Exception as e:
+        return jsonify({"message": "Error fetching vehicles", "error": str(e)}), 500
 
 @app.route('/api/vehicles/dispatch-pool', methods=['GET'])
 def get_vehicle_dispatch_pool():
