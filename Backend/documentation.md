@@ -84,21 +84,21 @@ This file contains the strict REST API data contracts between the Flask backend 
 ### Fetch Recent Trips Feed
 * URL: /api/dashboard/recent-trips
 * Method: GET
+* Query Parameters:
+  * `limit` (optional, default: 5): The number of recent trips to return.
 * Success Response (200 OK):
   [
     {
       "trip_code": "TR001",
       "vehicle": "VAN-05",
       "driver": "Alex",
-      "status": "On Trip",
-      "eta_or_notes": "45 min"
+      "status": "On Trip"
     },
     {
       "trip_code": "TR004",
       "vehicle": "TRK-12",
       "driver": "John",
-      "status": "Completed",
-      "eta_or_notes": "-"
+      "status": "Completed"
     }
   ]
 

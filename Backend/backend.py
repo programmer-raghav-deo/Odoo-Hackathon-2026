@@ -142,9 +142,39 @@ def get_dashboard_kpis():
 
 @app.route('/api/dashboard/recent-trips', methods=['GET'])
 def get_recent_trips():
-    return jsonify([
-        {"trip_code": "TR001", "vehicle": "VAN-05", "driver": "Alex", "status": "On Trip", "eta_or_notes": "45 min"}
-    ]), 200
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+
+    try:
+        limit = request.args.get('limit', default=5, type=int)
+        
+        # Pull the latest rows
+        recent_trips = Trip.query.order_by(Trip.id.desc()).limit(limit).all()
+
+        trips_list = []
+        for trip in recent_trips:
+            vehicle_name = trip.vehicle.name if trip.vehicle else f"ID-{trip.vehicle_id}"
+            driver_name = trip.driver.name if trip.driver else f"ID-{trip.driver_id}"
+            
+            status_mapping = {
+                "Draft": "Draft",
+                "Dispatched": "On Trip",
+                "Completed": "Completed",
+                "Cancelled": "Cancelled"
+            }
+            ui_status = status_mapping.get(trip.status, "Draft")
+
+            trips_list.append({
+                "trip_code": trip.trip_code,
+                "vehicle": vehicle_name,      
+                "driver": driver_name,        
+                "status": ui_status,          
+            })
+
+        return jsonify(trips_list), 200
+
+    except Exception as e:
+        return jsonify({"message": "Error fetching recent trips", "error": str(e)}), 500
 
 
 
