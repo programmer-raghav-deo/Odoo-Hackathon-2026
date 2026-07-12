@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from datetime import datetime
-from models import User, db
+from models import User, db, Vehicle, Trip, Driver
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 from dotenv import load_dotenv
@@ -101,17 +101,44 @@ def login():
 
 @app.route('/api/auth/logout', methods=['POST'])
 def logout():
+    session.clear()
     return jsonify({"message": "Logged out successfully"}), 200
 
 
 
 @app.route('/api/dashboard/kpis', methods=['GET'])
 def get_dashboard_kpis():
-    # TODO: Aggregate database counts
-    return jsonify({
-        "active_vehicles": 53, "available_vehicles": 42, "vehicles_in_maintenance": 5,
-        "active_trips": 18, "pending_trips": 9, "drivers_on_duty": 26, "fleet_utilization_pct": 81.0
-    }), 200
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+    
+    try:
+        active_vehicles = Vehicle.query.filter(Vehicle.status.in_(['Available', 'On Trip'])).count()
+        available_vehicles = Vehicle.query.filter_by(status='Available').count()
+        vehicles_in_maintenance = Vehicle.query.filter_by(status='In Shop').count() # FIXED: Removed leading space
+        
+        active_trips = Trip.query.filter_by(status="Dispatched").count()
+        pending_trips = Trip.query.filter_by(status="Draft").count()
+        drivers_on_duty = Driver.query.filter_by(status="On Trip").count()
+        
+        on_trip_vehicles = active_vehicles - available_vehicles
+        
+        if active_vehicles > 0:
+            fleet_utilization_pct = round((on_trip_vehicles / active_vehicles) * 100, 2)
+        else:
+            fleet_utilization_pct = 0.0
+
+        return jsonify({
+            "active_vehicles": active_vehicles,
+            "available_vehicles": available_vehicles,
+            "vehicles_in_maintenance": vehicles_in_maintenance,
+            "active_trips": active_trips,
+            "pending_trips": pending_trips,
+            "drivers_on_duty": drivers_on_duty,
+            "fleet_utilization_pct": fleet_utilization_pct
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"message": "Error fetching dashboard KPIs", "error": str(e)}), 500
 
 @app.route('/api/dashboard/recent-trips', methods=['GET'])
 def get_recent_trips():
