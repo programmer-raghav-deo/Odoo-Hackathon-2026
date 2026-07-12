@@ -11,6 +11,7 @@ import {
   Search, 
   Bell 
 } from 'lucide-react';
+import { api } from './api';
 import DashboardView from './DashboardView';
 import FleetView from './FleetView';
 import DriversView from './DriversView';
@@ -22,6 +23,20 @@ import SettingsView from './SettingsView';
 
 export default function Dashboard({ role, onLogout }) {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleLogoutClick = async () => {
+    setIsLoggingOut(true);
+    try {
+      // Calls app.route('/api/auth/logout') to invalidate cookies over credentials
+      await api.auth.logout();
+    } catch (err) {
+      console.error("Backend session teardown failed:", err.message);
+    } finally {
+      setIsLoggingOut(false);
+      onLogout(); // Redirect back to login frame cleanly
+    }
+  };
 
   return (
     <div className="flex h-screen bg-gray-50 font-sans text-gray-900 overflow-hidden">
@@ -78,12 +93,18 @@ export default function Dashboard({ role, onLogout }) {
             </button>
             <div className="flex items-center gap-3 pl-6 border-l border-gray-200">
               <div className="text-right">
-                <p className="text-sm font-semibold text-gray-900">Raven K.</p>
+                <p className="text-sm font-semibold text-gray-900">Operator</p>
                 <p className="text-xs text-gray-500">{role || 'Dispatcher'}</p>
               </div>
-              <div className="w-9 h-9 rounded-full bg-teal-700 text-white flex items-center justify-center font-bold text-sm shadow-sm cursor-pointer" onClick={onLogout}>
-                RK
-              </div>
+              <button 
+                type="button"
+                disabled={isLoggingOut}
+                onClick={handleLogoutClick}
+                className="w-9 h-9 rounded-full bg-teal-700 text-white flex items-center justify-center font-bold text-sm shadow-sm cursor-pointer hover:bg-teal-800 transition active:scale-95 disabled:opacity-50"
+                title="Click to sign out safely"
+              >
+                {isLoggingOut ? '...' : 'OP'}
+              </button>
             </div>
           </div>
         </header>
@@ -94,16 +115,10 @@ export default function Dashboard({ role, onLogout }) {
           {activeTab === 'fleet' && <FleetView />}
           {activeTab === 'drivers' && <DriversView />}
           {activeTab === 'trips' && <TripsView />}
-         {activeTab === 'maintenance' && <MaintenanceView />}
-         {activeTab === 'fuel' && <FuelExpensesView />}
-         {activeTab === 'analytics' && <AnalyticsView />}
-         {activeTab === 'settings' && <SettingsView />}
-         
-          {/* Placeholders for upcoming screens */}
-          {activeTab === 'maintenance' && <div className="text-center py-20 text-gray-400">Maintenance Component Goes Here</div>}
-          {activeTab === 'fuel' && <div className="text-center py-20 text-gray-400">Fuel & Expenses Component Goes Here</div>}
-          {activeTab === 'analytics' && <div className="text-center py-20 text-gray-400">Analytics Component Goes Here</div>}
-          {activeTab === 'settings' && <div className="text-center py-20 text-gray-400">Settings Component Goes Here</div>}
+          {activeTab === 'maintenance' && <MaintenanceView />}
+          {activeTab === 'fuel' && <FuelExpensesView />}
+          {activeTab === 'analytics' && <AnalyticsView />}
+          {activeTab === 'settings' && <SettingsView />}
         </div>
       </main>
     </div>

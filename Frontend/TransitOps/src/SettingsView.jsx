@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Sliders, 
   Shield, 
@@ -7,25 +7,43 @@ import {
   Save, 
   CheckCircle2, 
   AlertTriangle,
-  RefreshCw,
-  Info
+  RefreshCw
 } from 'lucide-react';
 
 export default function SettingsView() {
   const [activeSubTab, setActiveSubTab] = useState('general');
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   // Unified State Object mirroring backend properties
   const [settings, setSettings] = useState({
-    companyName: "LogiRoute Global Ltd",
+    companyName: "",
     currency: "USD ($)",
     distanceUnit: "Kilometers (km)",
     alertFuelThreshold: "15%",
     maintenanceInterval: "10000",
-    twoFactorAuth: true,
+    twoFactorAuth: false,
     sessionTimeout: "30",
-    webhookUrl: "https://api.logiroute.com/v1/hooks"
+    webhookUrl: ""
   });
+
+  // 1. Fetch current settings from backend on component mount
+  useEffect(() => {
+    fetch('/api/settings')
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to load system configurations.');
+        return res.json();
+      })
+      .then(data => {
+        setSettings(data);
+        setIsLoading(false);
+      })
+      .catch(err => {
+        setError(err.message);
+        setIsLoading(false);
+      });
+  }, []);
 
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -35,14 +53,46 @@ export default function SettingsView() {
     }));
   };
 
-  const handleFormSubmit = (e) => {
+  // 2. Submit updated state payload back to Flask via PUT request
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
-    setSavedSuccess(true);
-    setTimeout(() => setSavedSuccess(false), 3000);
+    setError(null);
+
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          // If authorization tokens are required by your backend auth system:
+          // 'Authorization': `Bearer ${localStorage.getItem('token')}` 
+        },
+        body: JSON.stringify(settings)
+      });
+
+      if (!response.ok) throw new Error('Failed to save settings variables.');
+
+      setSavedSuccess(true);
+      setTimeout(() => setSavedSuccess(false), 3000);
+    } catch (err) {
+      setError(err.message);
+    }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center p-12 text-sm font-semibold text-gray-500 gap-2">
+        <RefreshCw className="w-4 h-4 animate-spin text-teal-700" /> Loading System Variables...
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs font-bold flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-red-600" /> {error}
+        </div>
+      )}
       
       {/* Settings Summary Grid Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -63,7 +113,7 @@ export default function SettingsView() {
         <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Security Profile</p>
-            <p className="text-2xl font-extrabold text-gray-950 mt-1">Tier-1 <span className="text-xs text-emerald-600 font-bold">Secure</span></p>
+            <p className="text-2xl font-extrabold text-gray-950 mt-1">{settings.twoFactorAuth ? "Tier-1" : "Standard"} <span className={`text-xs font-bold ${settings.twoFactorAuth ? "text-emerald-600" : "text-amber-600"}`}>{settings.twoFactorAuth ? "Secure" : "Needs 2FA"}</span></p>
           </div>
           <div className="p-3 bg-purple-50 rounded-lg"><Shield className="w-5 h-5 text-purple-600" /></div>
         </div>
