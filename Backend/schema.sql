@@ -2,6 +2,7 @@
 CREATE TYPE vehicle_status AS ENUM ('Available', 'On Trip', 'In Shop', 'Retired');
 CREATE TYPE driver_status AS ENUM ('Available', 'On Trip', 'Off Duty', 'Suspended');
 CREATE TYPE trip_status AS ENUM ('Draft', 'Dispatched', 'Completed', 'Cancelled');
+CREATE TYPE user_role AS ENUM ('Fleet Manager', 'Dispatcher', 'Safety Officer', 'Financial Analyst');
 
 -- 1. Users & Roles (RBAC)
 CREATE TABLE users (
@@ -9,7 +10,7 @@ CREATE TABLE users (
     name VARCHAR(100) NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
-    role VARCHAR(50) NOT NULL -- 'Fleet Manager', 'Dispatcher', 'Safety Officer', 'Financial Analyst'
+    role user_role NOT NULL -- Enforces exact matches for RBAC
 );
 
 -- 2. Vehicle Registry
