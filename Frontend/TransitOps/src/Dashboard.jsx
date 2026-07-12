@@ -15,6 +15,10 @@ import DashboardView from './DashboardView';
 import FleetView from './FleetView';
 import DriversView from './DriversView';
 import TripsView from './TripsView'; 
+import MaintenanceView from './MaintenanceView';
+import FuelExpensesView from './FuelExpensesView';
+import AnalyticsView from './AnalyticsView';
+import SettingsView from './SettingsView';
 
 export default function Dashboard({ role, onLogout }) {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -90,7 +94,11 @@ export default function Dashboard({ role, onLogout }) {
           {activeTab === 'fleet' && <FleetView />}
           {activeTab === 'drivers' && <DriversView />}
           {activeTab === 'trips' && <TripsView />}
-          
+         {activeTab === 'maintenance' && <MaintenanceView />}
+         {activeTab === 'fuel' && <FuelExpensesView />}
+         {activeTab === 'analytics' && <AnalyticsView />}
+         {activeTab === 'settings' && <SettingsView />}
+         
           {/* Placeholders for upcoming screens */}
           {activeTab === 'maintenance' && <div className="text-center py-20 text-gray-400">Maintenance Component Goes Here</div>}
           {activeTab === 'fuel' && <div className="text-center py-20 text-gray-400">Fuel & Expenses Component Goes Here</div>}
