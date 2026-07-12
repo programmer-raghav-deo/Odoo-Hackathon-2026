@@ -257,8 +257,25 @@ def handle_vehicles():
 
 @app.route('/api/vehicles/dispatch-pool', methods=['GET'])
 def get_vehicle_dispatch_pool():
-    #Return all eligible vehicles for dispatch
-    return jsonify([{"id": 1, "model": "VAN-05", "max_capacity_kg": 500}]), 200
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+    
+    
+    vehicles = Vehicle.query.filter_by(status = "Available").all()
+
+    vehicles_list = []
+    for v in vehicles:
+            vehicles_list.append({
+                "id": v.id,
+                "reg_number": v.registration_number,
+                "model": v.name,
+                "type": v.type,
+                "max_capacity_kg": v.max_load_capacity_kg,
+                "odometer": v.odometer,
+                "acquisition_cost": float(v.acquisition_cost) if v.acquisition_cost else 0.0,
+                "status": v.status
+            })
+    return jsonify(vehicles_list), 200
 
 
 

@@ -149,7 +149,19 @@ This file contains the strict REST API data contracts between the Flask backend 
 ### Fetch Vehicles for Dispatch Selection Dropdown
 * URL: /api/vehicles/dispatch-pool
 * Method: GET
-* Success Response (200 OK): Filters out 'In Shop' or 'Retired' vehicles automatically.
+* Success Response (200 OK):
+  [
+    {
+      "id": 1,
+      "reg_number": "GJ01AB4521",
+      "model": "VAN-05",
+      "type": "Van",
+      "max_capacity_kg": 500,
+      "odometer": 74000,
+      "acquisition_cost": 620000.00,
+      "status": "Available"
+    }
+  ]
 
 ---
 
