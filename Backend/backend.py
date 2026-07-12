@@ -1,8 +1,8 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from datetime import datetime
 from models import User, db
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash, check_password_hash
 import os
 from dotenv import load_dotenv
 
@@ -12,7 +12,9 @@ load_dotenv()
 app = Flask(__name__)
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-CORS(app)
+# Essential for Flask sessions to work. CORS must also allow credentials.
+app.secret_key = os.getenv("SECRET_KEY", "fallback-hackathon-secure-string-123")
+CORS(app, supports_credentials=True)
 db.init_app(app)
 
 @app.route('/api/auth/register', methods=['POST'])
@@ -53,6 +55,8 @@ def register():
         )
         db.session.add(new_user)
         db.session.commit()
+        session['user_id'] = new_user.id
+        session['role'] = new_user.role
 
         return jsonify({
             "message": "User created successfully",
@@ -73,10 +77,26 @@ def register():
 @app.route("/api/auth/login", methods=['POST'])
 def login():
     data = request.get_json()
-    # TODO: Add database validation & 5-attempt lockout logic
+
+    if not data or 'email' not in data or 'password' not in data:
+        return jsonify({"message": "Missing email or password"}), 400
+    
+    user = User.query.filter_by(email=data['email']).first()
+
+    if not user or not check_password_hash(user.password_hash, data['password']):
+        return jsonify({"message": "Invalid email or password"}), 401
+    
+    session['user_id'] = user.id
+    session['role'] = user.role
+
     return jsonify({
         "message": "Login successful",
-        "user": {"name": "Raven K.", "email": data.get('email'), "role": "Dispatcher"}
+        "user": {
+            "id": user.id,
+            "email": user.email,
+            "name": user.name,
+            "role": user.role
+        }
     }), 200
 
 @app.route('/api/auth/logout', methods=['POST'])
