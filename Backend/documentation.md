@@ -277,76 +277,86 @@ This file contains the strict REST API data contracts between the Flask backend 
     "message": "Trip cancelled, assets set to Available"
   }
 
-  
+
 ---
 
-## 🔧 6. Maintenance Logs
+## 🛠️ 6. Maintenance Management
 
-### Fetch Maintenance Logs
-* URL: /api/maintenance/logs
-* Method: GET
-
-### Log Service Record
+### Log Maintenance Event
 * URL: /api/maintenance/log
 * Method: POST
 * Request Body:
   {
     "vehicle_id": 1,
-    "service_type": "Oil Change",
-    "cost": 2500.00,
-    "date": "2026-07-12"
+    "service_type": "Brake Replacement",
+    "cost": 3500.00,
+    "date": "2026-07-15"
   }
-* Success Response (201 Created): Automatically sets vehicle status to In Shop.
+* Success Response (201 Created):
+  { "message": "Maintenance logged. Vehicle shifted to In Shop." }
 
-### Close Maintenance Log
-* URL: /api/maintenance/<int:id>/close
+### Close Maintenance Event
+* URL: /api/maintenance/<log_id>/close
 * Method: POST
-* Success Response (200 OK): Restores vehicle status to Available.
+* Success Response (200 OK):
+  { "message": "Maintenance closed. Vehicle is Available." }
 
 ---
 
-## ⛽ 7. Fuel & Expense Management
-
-### Fetch Fuel and Expense Logs
-* URL: /api/expenses
-* Method: GET
+## 💳 7. Expense Management
 
 ### Log Fuel Entry
 * URL: /api/expenses/fuel
 * Method: POST
 * Request Body:
   {
+    "trip_id": 12,
     "vehicle_id": 1,
-    "date": "2026-07-12",
-    "liters": 42,
-    "fuel_cost": 3150.00
+    "liters": 45,
+    "fuel_cost": 4100.00
   }
+* Success Response (201 Created):
+  { "message": "Fuel entry logged" }
 
-### Log Other Trip Expenses
+### Log Tolls & Other Expenses
 * URL: /api/expenses/other
 * Method: POST
 * Request Body:
   {
-    "trip_id": 1,
+    "trip_id": 12,
     "vehicle_id": 1,
-    "toll": 120.00,
-    "other_cost": 0.00
+    "toll": 250.00,
+    "other_cost": 150.00
   }
+* Success Response (201 Created):
+  { "message": "Expense logged" }
 
 ---
 
-## 📈 8. Reports & Analytics
+## 📊 8. Analytics & Dashboard
 
-### Fetch Aggregated Analytical Summary
+### Get Analytics KPI Summary
 * URL: /api/analytics/summary
 * Method: GET
-* Success Response (200 OK): Returns Fuel Efficiency, Fleet Utilization, and Total Operational Cost.
+* Success Response (200 OK):
+  {
+    "fuel_efficiency_km_l": 8.4,
+    "fleet_utilization_pct": 25.0,
+    "total_operational_cost": 34070.00
+  }
 
-### Fetch Vehicle ROI Metrics
+### Get Vehicle Asset ROI Metrics
 * URL: /api/analytics/roi
 * Method: GET
-* Success Response (200 OK): Returns calculated vehicle ROI percentages formatted for graphing.
+* Success Response (200 OK):
+  [
+    {
+      "model": "VAN-05",
+      "roi_pct": 14.2
+    }
+  ]
 
 ### Export Analytical Data to CSV
 * URL: /api/analytics/export
 * Method: GET
+* Success Response (200 OK): Streams a raw file attachment streaming `fleet_analytics_report.csv` directly into the client's file downloads.

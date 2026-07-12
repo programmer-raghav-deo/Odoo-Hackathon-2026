@@ -1,11 +1,14 @@
-from flask import Flask, request, jsonify, session
+from flask import Flask, request, jsonify, session, Response
 from flask_cors import CORS
 from datetime import datetime, date
-from models import User, db, Vehicle, Trip, Driver
+from models import FuelExpense, MaintenanceLog, User, db, Vehicle, Trip, Driver
 from werkzeug.security import generate_password_hash, check_password_hash
 import os
 from dotenv import load_dotenv
 import uuid
+from sqlalchemy import func
+import io
+import csv
 
 # Load variables from the .env file
 load_dotenv()
@@ -594,33 +597,276 @@ def cancel_trip(trip_id):
 
 @app.route('/api/maintenance/log', methods=['POST'])
 def log_maintenance():
-    # TODO: Implement rule -> Auto-flip vehicle to 'In Shop'
-    return jsonify({"message": "Maintenance logged. Vehicle shifted to In Shop."}), 201
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+    
+    try:
+        data = request.get_json() or {}
+        vehicle_id = data.get('vehicle_id')
+        service_type = data.get('service_type')  # Maps to service_type
+        cost = data.get('cost')
+        date_str = data.get('date')              # Maps to date
+
+        if not vehicle_id or not service_type or cost is None or not date_str:
+            return jsonify({"message": "Missing required fields"}), 400
+
+        vehicle = Vehicle.query.get(vehicle_id)
+        if not vehicle:
+            return jsonify({"message": "Vehicle not found"}), 404
+
+        try:
+            log_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({"message": "Invalid date format. Use YYYY-MM-DD"}), 400
+
+        # Create record using your exact database columns
+        new_log = MaintenanceLog(
+            vehicle_id=vehicle_id,
+            service_type=service_type,
+            cost=float(cost),
+            date=log_date,
+            is_active=1  # 1 means active/open in shop
+        )
+        
+        # Auto-flip vehicle to 'In Shop'
+        vehicle.status = 'In Shop'
+
+        db.session.add(new_log)
+        db.session.commit()
+        return jsonify({"message": "Maintenance logged. Vehicle shifted to In Shop."}), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error logging maintenance", "error": str(e)}), 500
+
 
 @app.route('/api/maintenance/<int:log_id>/close', methods=['POST'])
 def close_maintenance(log_id):
-    return jsonify({"message": "Maintenance closed. Vehicle is Available."}), 200
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+
+    try:
+        log = MaintenanceLog.query.get(log_id)
+        if not log:
+            return jsonify({"message": "Maintenance log not found"}), 404
+
+        vehicle = Vehicle.query.get(log.vehicle_id)
+        if not vehicle:
+            return jsonify({"message": "Associated vehicle not found"}), 404
+
+        # Flip the tinyint flag to 0 (Closed)
+        log.is_active = 0
+        
+        # Release the vehicle back to the active fleet pool
+        vehicle.status = 'Available'
+
+        db.session.commit()
+        return jsonify({"message": "Maintenance closed. Vehicle is Available."}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error closing maintenance", "error": str(e)}), 500
 
 
 
 @app.route('/api/expenses/fuel', methods=['POST'])
 def log_fuel():
-    return jsonify({"message": "Fuel entry logged"}), 201
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+    
+    try:
+        data = request.get_json() or {}
+        trip_id = data.get('trip_id')
+        vehicle_id = data.get('vehicle_id')
+        liters = data.get('liters')
+        fuel_cost = data.get('fuel_cost')
+
+        if not trip_id or not vehicle_id or liters is None or fuel_cost is None:
+            return jsonify({"message": "Missing required fields"}), 400
+
+        # Check if an expense record already exists for this trip/vehicle to update, or create a new one
+        expense = FuelExpense.query.filter_by(trip_id=trip_id, vehicle_id=vehicle_id).first()
+        
+        if not expense:
+            expense = FuelExpense(trip_id=trip_id, vehicle_id=vehicle_id)
+            db.session.add(expense)
+
+        expense.liters = int(liters)
+        expense.fuel_cost = float(fuel_cost)
+        
+        db.session.commit()
+        return jsonify({"message": "Fuel entry logged"}), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error logging fuel", "error": str(e)}), 500
 
 @app.route('/api/expenses/other', methods=['POST'])
 def log_other_expense():
-    return jsonify({"message": "Expense logged"}), 201
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+    
+    try:
+        data = request.get_json() or {}
+        trip_id = data.get('trip_id')
+        vehicle_id = data.get('vehicle_id')
+        toll = data.get('toll', 0.0)
+        other_cost = data.get('other_cost', 0.0)
+
+        if not trip_id or not vehicle_id:
+            return jsonify({"message": "Missing trip_id or vehicle_id"}), 400
+
+        # Find or create record matching the composite context
+        expense = FuelExpense.query.filter_by(trip_id=trip_id, vehicle_id=vehicle_id).first()
+        
+        if not expense:
+            expense = FuelExpense(trip_id=trip_id, vehicle_id=vehicle_id)
+            db.session.add(expense)
+
+        expense.toll = float(toll)
+        expense.other_cost = float(other_cost)
+        
+        db.session.commit()
+        return jsonify({"message": "Expense logged"}), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Error logging expense", "error": str(e)}), 500
 
 
 
 @app.route('/api/analytics/summary', methods=['GET'])
 def get_analytics_summary():
-    return jsonify({"fuel_efficiency_km_l": 8.4, "fleet_utilization_pct": 81.0, "total_operational_cost": 34070.00}), 200
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+
+    try:
+        # 1. Calculate Fuel Efficiency (Total Distance / Total Liters)
+        total_distance = db.session.query(func.sum(Trip.planned_distance_km)).filter(Trip.status == 'Completed').scalar() or 0
+        total_liters = db.session.query(func.sum(FuelExpense.liters)).scalar() or 0
+        
+        fuel_efficiency = round(total_distance / total_liters, 2) if total_liters > 0 else 0.0
+
+        # 2. Calculate Fleet Utilization % (Vehicles 'On Trip' / Total Fleet Size)
+        total_vehicles = Vehicle.query.count()
+        active_vehicles = Vehicle.query.filter(Vehicle.status.in_(['Available', 'On Trip'])).count()
+        on_trip_vehicles = Vehicle.query.filter_by(status='On Trip').count()
+        
+        utilization_pct = round((on_trip_vehicles / active_vehicles) * 100, 1) if total_vehicles > 0 else 0.0
+
+        # 3. Calculate Total Operational Cost (Fuel + Tolls + Other + Maintenance)
+        fuel_costs = db.session.query(func.sum(FuelExpense.fuel_cost + FuelExpense.toll + FuelExpense.other_cost)).scalar() or 0
+        maint_costs = db.session.query(func.sum(MaintenanceLog.cost)).scalar() or 0
+        
+        total_operational_cost = float(fuel_costs + maint_costs)
+
+        return jsonify({
+            "fuel_efficiency_km_l": fuel_efficiency,
+            "fleet_utilization_pct": utilization_pct,
+            "total_operational_cost": total_operational_cost
+        }), 200
+
+    except Exception as e:
+        return jsonify({"message": "Error calculating metrics", "error": str(e)}), 500
 
 @app.route('/api/analytics/roi', methods=['GET'])
 def get_roi_metrics():
-    return jsonify([{"model": "TRUCK-11", "roi_pct": 14.2}, {"model": "MINI-03", "roi_pct": 8.5}]), 200
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
 
+    try:
+        # Group metrics by vehicle to provide dynamic per-vehicle ROI calculations
+        vehicles = Vehicle.query.all()
+        roi_list = []
+
+        for v in vehicles:
+            # Operational cost for this specific asset
+            v_fuel = db.session.query(func.sum(FuelExpense.fuel_cost)).filter_by(vehicle_id=v.id).scalar() or 0
+            v_maint = db.session.query(func.sum(MaintenanceLog.cost)).filter_by(vehicle_id=v.id).scalar() or 0
+            total_cost = float(v_fuel + v_maint)
+
+            # Baseline mock revenue based on distance driven to determine simple ROI percentage
+            v_distance = db.session.query(func.sum(Trip.planned_distance_km)).filter_by(vehicle_id=v.id, status='Completed').scalar() or 0
+            estimated_revenue = v_distance * 50  # Assuming 50 currency units generated per km
+            
+            roi_pct = 0.0
+            if v.acquisition_cost and float(v.acquisition_cost) > 0:
+                net_profit = estimated_revenue - total_cost
+                roi_pct = round((net_profit / float(v.acquisition_cost)) * 100, 1)
+
+            roi_list.append({
+                "model": v.name,
+                "roi_pct": roi_pct
+            })
+
+        return jsonify(roi_list), 200
+
+    except Exception as e:
+        return jsonify({"message": "Error compiling ROI metrics", "error": str(e)}), 500
+
+@app.route('/api/analytics/export', methods=['GET'])
+def export_analytics_csv():
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized. Please log in."}), 401
+
+    try:
+        # Generate an in-memory string buffer for the CSV data
+        output = io.StringIO()
+        writer = csv.writer(output)
+        
+        # 1. Write the KPI Summary Header & Data
+        writer.writerow(['--- FLEET KPI SUMMARY ---'])
+        writer.writerow(['Metric', 'Value'])
+        
+        total_distance = db.session.query(func.sum(Trip.planned_distance_km)).filter(Trip.status == 'Completed').scalar() or 0
+        total_liters = db.session.query(func.sum(FuelExpense.liters)).scalar() or 0
+        fuel_efficiency = round(total_distance / total_liters, 2) if total_liters > 0 else 0.0
+        
+        total_vehicles = Vehicle.query.count()
+        active_vehicles = Vehicle.query.filter_by(status='On Trip').count()
+        utilization_pct = round((active_vehicles / total_vehicles) * 100, 1) if total_vehicles > 0 else 0.0
+        
+        fuel_costs = db.session.query(func.sum(FuelExpense.fuel_cost + FuelExpense.toll + FuelExpense.other_cost)).scalar() or 0
+        maint_costs = db.session.query(func.sum(MaintenanceLog.cost)).scalar() or 0
+        total_operational_cost = float(fuel_costs + maint_costs)
+        
+        writer.writerow(['Fuel Efficiency (km/L)', fuel_efficiency])
+        writer.writerow(['Fleet Utilization (%)', utilization_pct])
+        writer.writerow(['Total Operational Cost', total_operational_cost])
+        writer.writerow([]) # Blank spacer line
+        
+        # 2. Write the Per-Vehicle ROI Performance Table
+        writer.writerow(['--- VEHICLE ROI METRICS ---'])
+        writer.writerow(['Vehicle ID', 'Vehicle Name', 'Total Expenses', 'Estimated Revenue', 'ROI (%)'])
+        
+        vehicles = Vehicle.query.all()
+        for v in vehicles:
+            v_fuel = db.session.query(func.sum(FuelExpense.fuel_cost + FuelExpense.toll + FuelExpense.other_cost)).filter_by(vehicle_id=v.id).scalar() or 0
+            v_maint = db.session.query(func.sum(MaintenanceLog.cost)).filter_by(vehicle_id=v.id).scalar() or 0
+            total_cost = float(v_fuel + v_maint)
+            
+            v_distance = db.session.query(func.sum(Trip.planned_distance_km)).filter_by(vehicle_id=v.id, status='Completed').scalar() or 0
+            estimated_revenue = v_distance * 50
+            
+            roi_pct = 0.0
+            if v.acquisition_cost and float(v.acquisition_cost) > 0:
+                net_profit = estimated_revenue - total_cost
+                roi_pct = round((net_profit / float(v.acquisition_cost)) * 100, 1)
+                
+            writer.writerow([v.id, v.name, total_cost, estimated_revenue, roi_pct])
+
+        # Move buffer stream pointer back to the beginning
+        output.seek(0)
+        
+        # Stream the file back to the browser immediately as a downloadable file download
+        return Response(
+            output.getvalue(),
+            mimetype="text/csv",
+            headers={"Content-disposition": "attachment; filename=fleet_analytics_report.csv"}
+        )
+
+    except Exception as e:
+        return jsonify({"message": "Error generating CSV export", "error": str(e)}), 500
 
 
 if __name__ == '__main__':
